@@ -81,25 +81,36 @@ jobs:
 
             Requires macOS 13 or later. Verify downloads against `checksums.txt`.
 
-      # The zip is not byte-for-byte reproducible, so the sha256 in the committed cask
-      # would go stale the moment a release is built. Regenerate it from the artifact
-      # that was actually published, and commit that.
+      # The zip is not byte-for-byte reproducible, so the sha256 baked into the
+      # committed cask would go stale on every release. Rewrite it from the artifact
+      # that was actually published and commit that.
+      #
+      # The comparison is done on the checksum itself rather than with `git diff`,
+      # which reported "no change" here even when the file on disk had been rewritten.
       - name: Update Homebrew cask
+        env:
+          DEEPSEEKBAR_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           VERSION="$(cat VERSION)"
-          echo "published zip sha: $(cut -d' ' -f1 < "dist/DeepSeekBar-$VERSION.zip.sha256")"
-          echo "committed cask sha: $(grep -oE '[0-9a-f]{64}' Casks/DeepSeekBar.rb | head -1)"
-          echo "generated cask sha: $(grep -oE '[0-9a-f]{64}' dist/DeepSeekBar.rb | head -1)"
-          git status --short
-          if git diff --quiet -- Casks/DeepSeekBar.rb; then
-            echo "cask unchanged"
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add Casks/DeepSeekBar.rb
-            git commit -m "Update Homebrew cask for v$VERSION [skip ci]"
-            git push origin "HEAD:${{ github.event.repository.default_branch }}"
+          PUBLISHED="$(cut -d' ' -f1 < "dist/DeepSeekBar-$VERSION.zip.sha256")"
+          COMMITTED="$(grep -oE '[0-9a-f]{64}' Casks/DeepSeekBar.rb | head -1 || true)"
+
+          echo "published: $PUBLISHED"
+          echo "committed: $COMMITTED"
+
+          if [ "$PUBLISHED" = "$COMMITTED" ]; then
+            echo "cask already matches the published artifact"
+            exit 0
           fi
-        env:
-          DEEPSEEKBAR_REPO: ${{ github.repository }}
+
+          cp "dist/DeepSeekBar.rb" Casks/DeepSeekBar.rb
+          test "$(grep -oE '[0-9a-f]{64}' Casks/DeepSeekBar.rb | head -1)" = "$PUBLISHED"
+          ruby -c Casks/DeepSeekBar.rb
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/DeepSeekBar.rb
+          git commit -m "Update Homebrew cask for v$VERSION [skip ci]"
+          git push origin "HEAD:${{ github.event.repository.default_branch }}"
+          echo "cask updated to $PUBLISHED"
