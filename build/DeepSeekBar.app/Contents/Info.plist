@@ -4,14 +4,22 @@
 <dict>
     <key>CFBundleName</key>
     <string>DeepSeekBar</string>
+    <key>CFBundleDisplayName</key>
+    <string>DeepSeekBar</string>
     <key>CFBundleIdentifier</key>
     <string>local.deepseekbar</string>
-    <key>CFBundleVersion</key>
-    <string>1.0</string>
-    <key>CFBundleShortVersionString</key>
-    <string>1.0</string>
     <key>CFBundleExecutable</key>
     <string>DeepSeekBar</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundleVersion</key>
+    <string>2.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>2.0</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
     <key>LSUIElement</key>
     <true/>
 </dict>
