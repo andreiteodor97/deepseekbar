@@ -247,6 +247,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         PanelView(
             store: store,
             settings: settings,
+            initialTab: .rate,
             onOpenPlatform: {
                 NSWorkspace.shared.open(URL(string: "https://platform.deepseek.com/usage")!)
                 self.panel.close()

@@ -158,7 +158,11 @@ final class Store: ObservableObject {    static let shared = Store()
 
     let platform = PlatformAPI()
 
-    var isConnectedToConsole: Bool { Credentials.consoleToken != nil }
+    /// Overridden by tools/screenshot.sh so the documentation can show the connected
+    /// state without a live session.
+    private var sampleConnected: Bool?
+
+    var isConnectedToConsole: Bool { sampleConnected ?? (Credentials.consoleToken != nil) }
 
     private let api = DeepSeekAPI()
     private var tickTimer: Timer?
@@ -349,6 +353,17 @@ final class Store: ObservableObject {    static let shared = Store()
         return f.string(from: date)
     }
 
+    /// Feeds fixed sample figures into the panel. Used only by tools/screenshot.sh so
+    /// documentation images do not depend on a live account or a quiet desktop.
+    func applySampleData(balance: AccountBalance, usage: PlatformUsage, perKey: [NamedTokenRow],
+                         connected: Bool = false) {
+        self.balance = balance
+        self.platformUsage = usage
+        self.perKeyUsage = perKey
+        self.lastSync = Date()
+        sampleConnected = connected
+    }
+
     // MARK: Derived figures
 
     var today: DayRecord? { ledger.days.last { $0.day == Self.dayKey(for: Date()) } }
@@ -372,8 +387,18 @@ final class Store: ObservableObject {    static let shared = Store()
     var todayTokens: TokenCounts { todayUsage?.tokens ?? TokenCounts() }
     var todayRequests: Int { todayUsage?.requests ?? 0 }
 
-    /// Observed spend across the whole retained window (estimate path).
-    var spentTracked: Double { ledger.days.reduce(0) { $0 + $1.spend } }
+    /// Spend across the retained window. Uses the console's billed series when it is
+    /// available so this always agrees with the chart drawn directly beneath it.
+    var spentTracked: Double {
+        if let usage = platformUsage, !usage.days.isEmpty { return usage.totalCost }
+        return ledger.days.reduce(0) { $0 + $1.spend }
+    }
+
+    /// How many days the tracked figure covers, in whichever source is in use.
+    var trackedDayCount: Int {
+        if let usage = platformUsage, !usage.days.isEmpty { return usage.days.count }
+        return ledger.days.count
+    }
 
     /// Daily spend series for the mini chart, oldest first. Real data when available.
     var spendSeries: [(day: String, spend: Double)] {

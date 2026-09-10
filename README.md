@@ -13,6 +13,12 @@
 
 </div>
 
+<div align="center">
+<img src="docs/panel.png" alt="The DeepSeekBar panel showing balance, live rates and the peak schedule" width="330">
+&nbsp;&nbsp;
+<img src="docs/panel-usage.png" alt="Billed spend, token split and cache hit rate" width="330">
+</div>
+
 ---
 
 DeepSeek's API prices depend on the clock: peak hours cost exactly **double**. Nothing in
@@ -139,12 +145,17 @@ and `Schedule.peakWindows` in `Sources/Pricing.swift` and run `make test`.
 ## Development
 
 ```sh
-make          # compile
-make run      # compile, install to ~/Applications, launch
-make test     # rate/schedule test suite
-make release  # zip + dmg + checksums + Homebrew cask into dist/
+make              # compile
+make run          # compile, install to ~/Applications, launch
+make test         # rate/schedule test suite
+make release      # zip + dmg + checksums + Homebrew cask into dist/
+./tools/screenshot.sh   # regenerate the images in docs/
 make clean
 ```
+
+The documentation images are rendered offscreen from the real `PanelView` with sample
+data, so they are reproducible and do not depend on a live account or on whatever happens
+to be behind the window.
 
 The test suite covers the schedule boundaries (including the weekend edges that are easy
 to get wrong), the cost maths, and the formatters. Run it before opening a pull request —

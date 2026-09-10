@@ -5,11 +5,13 @@ import SwiftUI
 struct PanelView: View {
     @ObservedObject var store: Store
     @ObservedObject var settings: Settings
+    var initialTab: Tab = .rate
     var onOpenPlatform: () -> Void
     var onConnectConsole: () -> Void
     var onQuit: () -> Void
 
-    @State private var tab: Tab = .rate
+    @Environment(\.dsbOpaqueBackground) private var opaqueBackground
+    @State private var tab: Tab
 
     enum Tab: String, CaseIterable {
         case rate = "Rate"
@@ -17,29 +19,46 @@ struct PanelView: View {
         case settings = "Settings"
     }
 
+    init(store: Store, settings: Settings, initialTab: Tab = .rate,
+         onOpenPlatform: @escaping () -> Void,
+         onConnectConsole: @escaping () -> Void,
+         onQuit: @escaping () -> Void) {
+        self.store = store
+        self.settings = settings
+        self.onOpenPlatform = onOpenPlatform
+        self.onConnectConsole = onConnectConsole
+        self.onQuit = onQuit
+        _tab = State(initialValue: initialTab)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
             Divider().opacity(0.5)
             tabBar
-            ScrollView(.vertical, showsIndicators: false) {
-                Group {
-                    switch tab {
-                    case .rate: rateTab
-                    case .usage: usageTab
-                    case .settings: SettingsTab(settings: settings, store: store)
+            Group {
+                if opaqueBackground {
+                    // ScrollView measures to nothing under ImageRenderer, so the
+                    // documentation renderer gets the content directly.
+                    tabBody
+                        .padding(.horizontal, 12)
+                        .padding(.top, 12)
+                        .padding(.bottom, 10)
+                } else {
+                    ScrollView(.vertical, showsIndicators: false) {
+                        tabBody
+                            .padding(.horizontal, 12)
+                            .padding(.top, 12)
+                            .padding(.bottom, 10)
                     }
+                    .frame(maxHeight: 660)
                 }
-                .padding(.horizontal, 12)
-                .padding(.top, 12)
-                .padding(.bottom, 10)
             }
-            .frame(maxHeight: 660)
             Divider().opacity(0.5)
             footer
         }
         .frame(width: 372)
-        .background(VisualEffectBackground())
+        .background(opaqueBackground ? AnyView(Color(nsColor: .windowBackgroundColor)) : AnyView(VisualEffectBackground()))
     }
 
     // MARK: Header
@@ -94,6 +113,16 @@ struct PanelView: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
+    }
+
+    /// The selected tab's content, without any scrolling wrapper.
+    @ViewBuilder
+    private var tabBody: some View {
+        switch tab {
+        case .rate: rateTab
+        case .usage: usageTab
+        case .settings: SettingsTab(settings: settings, store: store)
+        }
     }
 
     // MARK: Rate tab
@@ -477,7 +506,7 @@ struct PanelView: View {
                         Text(Fmt.money(store.spentTracked, decimals: 2))
                             .font(.system(size: 19, weight: .semibold, design: .rounded))
                             .monospacedDigit()
-                        Text("observed over \(store.ledger.days.count) day\(store.ledger.days.count == 1 ? "" : "s")")
+                        Text("over \(store.trackedDayCount) day\(store.trackedDayCount == 1 ? "" : "s")")
                             .font(.system(size: 11))
                             .foregroundStyle(.tertiary)
                     }
@@ -586,4 +615,18 @@ struct VisualEffectBackground: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
+}
+
+private struct OpaqueBackgroundKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// When true the panel paints a flat background instead of frosted glass.
+    /// `ImageRenderer` cannot draw `NSVisualEffectView`, so the offscreen screenshot
+    /// tool turns this on.
+    var dsbOpaqueBackground: Bool {
+        get { self[OpaqueBackgroundKey.self] }
+        set { self[OpaqueBackgroundKey.self] = newValue }
+    }
 }
