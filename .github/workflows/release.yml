@@ -88,6 +88,10 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="$(cat VERSION)"
+          echo "published zip sha: $(cut -d' ' -f1 < "dist/DeepSeekBar-$VERSION.zip.sha256")"
+          echo "committed cask sha: $(grep -oE '[0-9a-f]{64}' Casks/DeepSeekBar.rb | head -1)"
+          echo "generated cask sha: $(grep -oE '[0-9a-f]{64}' dist/DeepSeekBar.rb | head -1)"
+          git status --short
           if git diff --quiet -- Casks/DeepSeekBar.rb; then
             echo "cask unchanged"
           else
