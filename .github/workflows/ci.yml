@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test rate engine
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      # The schedule and rate card are pure logic and have no dependencies, so this is
+      # the fastest signal that a change broke pricing.
+      - name: Run test suite
+        run: ./test.sh
+
+  build:
+    name: Build app
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          swift --version
+          python3 --version
+
+      - name: Compile
+        run: ./build.sh
+
+      - name: Verify the bundle
+        run: |
+          set -euo pipefail
+          APP=build/DeepSeekBar.app
+          test -x "$APP/Contents/MacOS/DeepSeekBar"
+          test -f "$APP/Contents/Resources/AppIcon.icns"
+          # Version in the bundle must match the VERSION file, or releases drift.
+          VERSION="$(cat VERSION)"
+          PLIST_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
+          test "$VERSION" = "$PLIST_VERSION" || {
+            echo "VERSION ($VERSION) does not match Info.plist ($PLIST_VERSION)" >&2
+            exit 1
+          }
+          echo "bundle ok: $VERSION"
+
+      # The app is a menu bar agent; confirm it starts, stays up, and does not crash
+      # immediately, which is the most common way a change breaks it.
+      - name: Smoke test launch
+        run: |
+          set -euo pipefail
+          ./build/DeepSeekBar.app/Contents/MacOS/DeepSeekBar &
+          PID=$!
+          sleep 6
+          if ! kill -0 "$PID" 2>/dev/null; then
+            echo "app exited within 6s" >&2
+            exit 1
+          fi
+          kill "$PID" 2>/dev/null || true
+          echo "app stayed up"
+
+      - name: Package
+        run: ./tools/package.sh
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: DeepSeekBar-dist
+          path: dist/*
+          if-no-files-found: error

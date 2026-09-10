@@ -1,0 +1,61 @@
+name: Bug report
+description: Something is broken or the numbers look wrong
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. The most useful thing you can include is the log.
+
+  - type: checkboxes
+    id: menu-bar
+    attributes:
+      label: Menu bar item
+      options:
+        - label: The menu bar item is currently visible
+        - label: The menu bar item disappeared at some point (this is high priority — please describe when)
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you expect, and what did you see instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: "Paste the last 30 lines of `/tmp/dsbar.log` (run `tail -30 /tmp/dsbar.log`)."
+      render: shell
+    validations:
+      required: true
+
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: "14.5"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: How did you install it?
+      options:
+        - Downloaded a release
+        - Homebrew
+        - Built from source (make run)
+    validations:
+      required: true
+
+  - type: input
+    id: timezone
+    attributes:
+      label: Timezone and current UTC time
+      description: Relevant for anything about which rate is showing.
+      placeholder: "UTC+4, UTC is 16:40"
+    validations:
+      required: false

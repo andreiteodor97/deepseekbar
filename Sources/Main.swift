@@ -136,6 +136,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let store = Store.shared
     private let settings = Settings.shared
     private var cancellables = Set<AnyCancellable>()
+    private var watchdog: Timer?
+    private var lastRebuild = Date.distantPast
+    private var recentlyRebuilt: Bool { Date().timeIntervalSince(lastRebuild) < 5 }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Two copies would fight over the same status-item slot and ledger file.
@@ -176,6 +179,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         renderStatusItem()
         Task { await store.sync() }
 
+        // Safety net for evictions with no notification of their own. Recreating is
+        // cheap and does not flicker, so this is a fine trade for never disappearing.
+        let timer = Timer.scheduledTimer(withTimeInterval: 20 * 60, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.rebuildStatusItem(reason: "heartbeat") }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        watchdog = timer
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self, selector: #selector(rebuildStatusItemOnWake),
+            name: NSWorkspace.didWakeNotification, object: nil
+        )
+
         NSWorkspace.shared.notificationCenter.addObserver(
             self, selector: #selector(screenConfigurationChanged),
             name: NSApplication.didChangeScreenParametersNotification, object: nil
@@ -184,6 +199,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func screenConfigurationChanged() {
         if panel.isVisible { panel.close() }
+        rebuildStatusItem(reason: "screen change")
+    }
+
+    /// The menu bar can drop a status item — after a display change, a `SystemUIServer`
+    /// restart, a login, or a wake from sleep — while the process keeps running happily.
+    /// From the user's side the app has simply vanished, which is the worst possible
+    /// failure for a menu bar app.
+    ///
+    /// There is no API that reports the eviction: `isVisible` stays `true`, and status
+    /// items do not appear in the window-server window list at all. So this rebuilds the
+    /// item on every event known to cause an eviction, plus a slow heartbeat as a net.
+    /// Rebuilding is cheap and invisible — it re-renders the same image into the same slot.
+    private func rebuildStatusItem(reason: String) {
+        guard Date().timeIntervalSince(lastRebuild) > 3 else { return }
+        lastRebuild = Date()
+        DebugLog.write("rebuilding status item (\(reason))")
+
+        if let existing = statusItem {
+            NSStatusBar.system.removeStatusItem(existing)
+        }
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        statusItem.autosaveName = "DeepSeekBarItem"
+        if let button = statusItem.button {
+            button.target = self
+            button.action = #selector(togglePanel)
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        }
+        renderStatusItem()
+    }
+
+    @objc private func rebuildStatusItemOnWake() {
+        rebuildStatusItem(reason: "wake")
     }
 
     @objc private func togglePanel() {

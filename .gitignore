@@ -1,0 +1,24 @@
+# Build products
+build/
+*.dmg
+*.zip
+dist/
+*.icns
+*.iconset/
+
+# Xcode / SwiftPM noise
+.swiftpm/
+.xcode/
+DerivedData/
+*.xcuserstate
+
+# macOS
+.DS_Store
+._*
+
+# Local scratch
+scratch/
+
+# Python bytecode from the build tools
+__pycache__/
+*.pyc

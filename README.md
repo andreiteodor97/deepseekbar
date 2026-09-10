@@ -1,100 +1,109 @@
+<div align="center">
+
 # DeepSeekBar
 
-A macOS menu bar app that tells you **what DeepSeek is charging you right now** and
-**what you have actually spent**.
+**A macOS menu bar app that tells you what DeepSeek is charging you right now — and what you have actually spent.**
 
-DeepSeek's API prices depend on the time of day: peak hours cost exactly double. The
-only way to know which rate you are on is to track UTC against a two-window schedule —
-and the only place your real spend lives is the console's usage page. This app puts both
-in the menu bar.
+[![CI](https://github.com/andreiteodor97/deepseekbar/actions/workflows/ci.yml/badge.svg)](https://github.com/andreiteodor97/deepseekbar/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-black.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/macOS-13%2B-black.svg)](#install)
+[![No dependencies](https://img.shields.io/badge/dependencies-none-black.svg)](#build-from-source)
 
-```
-🐳 $5.04 cheap          ← balance and current rate mode, always visible
-```
+<img src="docs/menu-bar.png" alt="DeepSeekBar in the menu bar" width="100%">
 
-Click it for a panel with live rates, a peak/off-peak timeline for the day, a countdown
-to the next price change, your billed cost and token history, and every setting.
+</div>
 
 ---
+
+DeepSeek's API prices depend on the clock: peak hours cost exactly **double**. Nothing in
+the API tells you which rate you are on, and the only place your real spend lives is the
+console's usage page. DeepSeekBar puts both in your menu bar.
+
+```
+🐳 $5.04 cheap
+```
+
+Click it for live rates, a peak/off-peak timeline for your timezone, a countdown to the
+next price change, and your billed cost and token history.
 
 ## What it does
 
-**Peak/off-peak, correctly.** Peak is 01:00–04:00 and 06:00–10:00 UTC, Monday–Friday;
-off-peak is exactly half price. The panel shows the day as a timeline in your timezone,
-marks where you are on it, and counts down to the next switch. It can also send a
-notification when the rate flips.
-
-**Balance and spend.** Balance comes from the documented public API
-(`GET /user/balance`). Spend comes from the console when you connect it, and falls back
-to a local estimate when you do not.
-
-**Real cost history.** Connecting your account unlocks the console's own figures: cost
-per day, request counts, and the full token split (cache-hit input, cache-miss input,
-output) plus lifetime spend — the same numbers as the Usage page on
-platform.deepseek.com.
-
-**Cache hit rate.** DeepSeek charges $0.003/M for cached input against $0.15/M for
-uncached — a 50× difference. The panel shows today's hit rate alongside the spend,
-because that single ratio moves the bill more than anything else.
-
-**Savings, quantified.** Because token counts are known and the two rate cards differ by
-exactly 2×, the panel can state what today would have cost at peak rates and what the
-off-peak window saved you.
-
----
+| | |
+|---|---|
+| **Knows the rate** | Peak is 01:00–04:00 and 06:00–10:00 UTC, Monday–Friday. Off-peak is exactly half. The panel draws your day as a timeline, marks where you are, and counts down to the next switch. |
+| **Shows real spend** | Connect your account and it reads DeepSeek's own billed figures: cost per day, request counts, the full token split, and lifetime spend. |
+| **Tracks cache hits** | Cached input costs $0.003/M against $0.15/M uncached — a 50× difference. The panel shows today's hit rate next to the spend, because that ratio moves the bill more than anything else. |
+| **Quantifies the savings** | It knows the token counts and both rate cards, so it can tell you what today *would* have cost at peak, and what the off-peak window saved you. |
+| **Warns you** | Optional notification when the rate flips, so a long job can wait 20 minutes and cost half as much. |
 
 ## Install
 
+**Homebrew**
+
 ```sh
-./build.sh --run      # compile, install to ~/Applications, and launch
-./test.sh             # run the rate/schedule test suite
+brew install --cask https://github.com/andreiteodor97/deepseekbar/raw/main/Casks/DeepSeekBar.rb
 ```
 
-Then click the whale and open **Settings** to paste an API key from
-[platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys) (the app also
-imports one automatically from common local config locations on first run).
+**Download** — grab `DeepSeekBar-<version>.zip` from
+[Releases](https://github.com/andreiteodor97/deepseekbar/releases), unzip, and drag
+`DeepSeekBar.app` to Applications.
 
-To get billed figures rather than local estimates, open the **Usage** tab and click
-**Connect account** — see below.
+The app is not notarized, so macOS may block the first launch. Either right-click the app
+and choose **Open**, or allow it once:
 
----
+```sh
+xattr -dr com.apple.quarantine /Applications/DeepSeekBar.app
+```
+
+**Build from source** — no Gatekeeper prompts at all, and the recommended path if you
+have the toolchain:
+
+```sh
+git clone https://github.com/andreiteodor97/deepseekbar.git
+cd deepseekbar
+make run
+```
+
+Requires macOS 13+ and Xcode command line tools. There are no dependencies: no SPM
+packages, no CocoaPods, no Xcode project — just `swiftc` and a handful of files.
+
+### Setup
+
+1. Click the whale → **Settings**, and paste an API key from
+   [platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys). (On first run
+   the app also imports one from common local config locations if it finds one.)
+2. For billed figures rather than local estimates, open **Usage** → **Connect account**
+   and sign in once. See [why that needs a window](#why-connecting-needs-a-sign-in-window).
 
 ## Why connecting needs a sign-in window
 
-The console's usage API sits behind an AWS WAF bot check that plain HTTP clients cannot
-pass: without a valid `aws-waf-token` cookie every request answers `202` with an empty
-body. That cookie is minted by the site's own JavaScript, and it expires after about four
-days.
+The console's usage API sits behind an AWS WAF bot check. Without a valid
+`aws-waf-token` cookie every request answers `202` with an empty body — plain HTTP clients
+cannot get through, and the cookie expires after about four days.
 
 So the app hosts `platform.deepseek.com` in its own `WKWebView` and lets that page solve
-the challenge exactly as a browser would. Requests are then issued *from inside* the
-page, which means the cookie is present, refreshed, and never leaves the app. You sign in
-once; the session persists in the app's own web data store.
+the challenge exactly as a browser would. Requests are then issued *from inside* the page,
+so the cookie is always present and refreshed by the site's own JavaScript. You sign in
+once and the session persists.
 
-Nothing is scraped out of your other browsers, and no credentials are sent anywhere
-except to DeepSeek.
+Nothing is scraped out of your other browsers, and nothing is sent anywhere except to
+DeepSeek.
 
----
+## Privacy
 
-## Where data lives
+DeepSeekBar only ever makes **read-only** requests. It never sends a completion request,
+never creates or edits API keys, and never touches the payment endpoints. There is no
+telemetry, no analytics, and no network traffic to anywhere but `deepseek.com`.
 
-| Path | Contents |
-|---|---|
-| `~/Library/Application Support/DeepSeekBar/credentials.json` | API key and console session token, mode `0600` |
-| `~/Library/Application Support/DeepSeekBar/ledger.json` | Daily balance observations and detected top-ups, mode `0600` |
-| `/tmp/dsbar.log` | Diagnostics; the app has nowhere else to print |
+Credentials live in `~/Library/Application Support/DeepSeekBar/credentials.json` with mode
+`0600`, alongside `ledger.json` holding your locally observed balance history.
 
-Credentials are deliberately **not** in the keychain. Every local rebuild produces a new
-ad-hoc code signature, so the keychain would treat each build as a different application
-and prompt for your login password on every launch. A file you own with mode `0600` is
-the same protection `gh`, `aws`, and `gcloud` use.
+They are deliberately **not** in the keychain. Every local rebuild produces a new ad-hoc
+code signature, so the keychain treats each build as a different application and prompts
+for your login password on every launch. A file you own with mode `0600` is the same
+protection `gh`, `aws`, and `gcloud` rely on.
 
-This app only ever makes read-only requests. It never sends a completion request, never
-creates or edits API keys, and never touches the payment endpoints.
-
----
-
-## Layout
+## How it works
 
 ```
 Sources/
@@ -108,33 +117,46 @@ Sources/
   Components.swift     cards, mode pill, peak timeline, sparkline
   ConnectConsole.swift sign-in window
   WhaleGlyph.swift     generated by tools/trace_whale.py
-tools/
-  trace_whale.py       traces the official logo into a vector path
-  gen-icon.swift       renders the .icns
-  tests/main.swift      rate/schedule test suite
 ```
 
-### The whale
+### The whale is a real vector
 
-The menu bar glyph is a real vector path, not a downscaled bitmap — a bitmap turns to
-mush at 16pt. `tools/trace_whale.py` extracts the silhouette from the official logo,
-isolates the outline and the eye, smooths both, and emits a SwiftUI `Path` in a normalised
-16×16 space. The eye is a separate subpath, so the even-odd fill rule turns it into a
-cut-out that tints like a native template image.
+A bitmap turns to mush at 16pt, so `tools/trace_whale.py` extracts the silhouette from the
+official logo, isolates the outline and the eye, smooths both, and emits a SwiftUI `Path`
+in a normalised 16×16 space. The eye is a separate subpath, so the even-odd fill rule turns
+it into a cut-out that tints like a native template image.
 
-### Pricing source
+### Peak schedule
 
-Rates and the peak schedule are taken from
+Peak hours are 01:00–04:00 and 06:00–10:00 UTC, Monday through Friday; all other hours bill
+at half price. Rates match
 [api-docs.deepseek.com/quick_start/pricing](https://api-docs.deepseek.com/quick_start/pricing).
+
 Both current models bill at the `deepseek-flash` card: `deepseek-v4-pro` is being retired
-and is served by V4.1 Flash at Flash prices. If DeepSeek changes the card, update
-`Rate` and `Schedule.peakWindows` in `Sources/Pricing.swift` and run `./test.sh`.
+and is served by V4.1 Flash at Flash prices. If DeepSeek changes the card, update `Rate`
+and `Schedule.peakWindows` in `Sources/Pricing.swift` and run `make test`.
 
----
+## Development
 
-## Notifications
+```sh
+make          # compile
+make run      # compile, install to ~/Applications, launch
+make test     # rate/schedule test suite
+make release  # zip + dmg + checksums + Homebrew cask into dist/
+make clean
+```
 
-Rate-change notifications use `UNUserNotificationCenter`, which requires a bundle
-identity — macOS will not deliver notifications from a bare executable. They work when
-the app runs from `~/Applications/DeepSeekBar.app` (as `build.sh` installs it) and are
-silently skipped otherwise. The menu bar and panel work either way.
+The test suite covers the schedule boundaries (including the weekend edges that are easy
+to get wrong), the cost maths, and the formatters. Run it before opening a pull request —
+a mis-set weekday means the app confidently reports the wrong price for hours at a time.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the longer version, including how to run the
+app against a real account while developing.
+
+## License
+
+[MIT](LICENSE).
+
+DeepSeekBar is an unofficial client. It is not affiliated with, endorsed by, or supported
+by DeepSeek. "DeepSeek" and the whale mark belong to their owners; the mark is used here
+only to identify the service the app talks to.

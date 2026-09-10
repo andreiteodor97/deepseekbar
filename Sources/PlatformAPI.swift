@@ -192,7 +192,7 @@ final class PlatformAPI: NSObject, ObservableObject {
         })()
         """
         let value = (try? await view.evaluateJavaScript(script) as? String) ?? ""
-        let token = (value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let token = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard token.count > 20 else { throw PlatformError.notConnected }
         Credentials.setConsoleToken(token)
     }
@@ -201,7 +201,7 @@ final class PlatformAPI: NSObject, ObservableObject {
     private func hasSolvedChallenge(_ view: WKWebView) async -> Bool {
         let script = "document.documentElement.outerHTML.length"
         let length = (try? await view.evaluateJavaScript(script) as? Int) ?? 0
-        return (length ?? 0) > 1500
+        return length > 1500
     }
 
     private func load(_ url: URL, in view: WKWebView) async throws {
@@ -424,7 +424,7 @@ final class PlatformAPI: NSObject, ObservableObject {
     /// Builds a console-legal window: local midnights in a whole-hour timezone offset.
     static func window(days: Int, calendar: Calendar) throws -> Window {
         let clamped = max(1, min(days, 31))
-        let tz = calendar.timeZone ?? .current
+        let tz = calendar.timeZone
         let offset = tz.secondsFromGMT()
         let wholeHours = Int(floor(Double(offset) / 3600.0))
         let remainder = offset - wholeHours * 3600
@@ -452,8 +452,8 @@ final class PlatformAPI: NSObject, ObservableObject {
         var lifetime: Double?
         var currency = "USD"
 
-        if let payload = cost as? [String: Any] {
-            let currencies = payload["data"] as? [[String: Any]] ?? []
+        do {
+            let currencies = cost["data"] as? [[String: Any]] ?? []
             if let first = currencies.first, let code = first["currency"] as? String { currency = code }
             for entry in currencies {
                 for series in entry["series"] as? [[String: Any]] ?? [] {
@@ -463,7 +463,7 @@ final class PlatformAPI: NSObject, ObservableObject {
                     }
                 }
             }
-            if let totals = payload["total_costs"] as? [[String: Any]], let first = totals.first {
+            if let totals = cost["total_costs"] as? [[String: Any]], let first = totals.first {
                 lifetime = decimal(first["amount"])
             }
         }
@@ -472,15 +472,7 @@ final class PlatformAPI: NSObject, ObservableObject {
         var requestsByTime: [Int: Int] = [:]
 
         // `amount` may arrive as the flat series map or wrapped in the currency envelope.
-        let seriesList: [[String: Any]] = {
-            if let payload = amount as? [String: Any] {
-                if let flat = payload["series"] as? [[String: Any]] { return flat }
-                if let wrapped = payload["data"] as? [[String: Any]] {
-                    return wrapped.flatMap { $0["series"] as? [[String: Any]] ?? [] }
-                }
-            }
-            return []
-        }()
+        let seriesList = series(from: amount)
 
         for series in seriesList {
             for bucket in series["buckets"] as? [[String: Any]] ?? [] {
@@ -518,8 +510,8 @@ final class PlatformAPI: NSObject, ObservableObject {
         var tokensByKey: [String: TokenCounts] = [:]
         var requestsByKey: [String: Int] = [:]
 
-        if let payload = cost as? [String: Any] {
-            for entry in payload["data"] as? [[String: Any]] ?? [] {
+        do {
+            for entry in cost["data"] as? [[String: Any]] ?? [] {
                 for series in entry["series"] as? [[String: Any]] ?? [] {
                     let key = series["api_key"] as? [String: Any] ?? [:]
                     let id = key["tracking_id"] as? String ?? "unknown"
@@ -531,15 +523,7 @@ final class PlatformAPI: NSObject, ObservableObject {
             }
         }
 
-        let seriesList: [[String: Any]] = {
-            if let payload = amount as? [String: Any] {
-                if let flat = payload["series"] as? [[String: Any]] { return flat }
-                if let wrapped = payload["data"] as? [[String: Any]] {
-                    return wrapped.flatMap { $0["series"] as? [[String: Any]] ?? [] }
-                }
-            }
-            return []
-        }()
+        let seriesList = series(from: amount)
 
         for series in seriesList {
             let key = series["api_key"] as? [String: Any] ?? [:]
@@ -568,6 +552,16 @@ final class PlatformAPI: NSObject, ObservableObject {
             )
         }
         .sorted { $0.cost > $1.cost }
+    }
+
+    /// The `amount` endpoint returns either a flat `series` list or the currency-wrapped
+    /// shape that `cost` uses. Both appear in the wild, so accept either.
+    private static func series(from payload: [String: Any]) -> [[String: Any]] {
+        if let flat = payload["series"] as? [[String: Any]] { return flat }
+        if let wrapped = payload["data"] as? [[String: Any]] {
+            return wrapped.flatMap { $0["series"] as? [[String: Any]] ?? [] }
+        }
+        return []
     }
 
     // MARK: Value coercion

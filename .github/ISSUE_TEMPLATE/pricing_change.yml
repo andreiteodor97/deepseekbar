@@ -1,0 +1,26 @@
+name: Pricing or schedule change
+description: DeepSeek changed its rate card or peak hours
+labels: [pricing]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Rates live in `Rate` and `Schedule.peakWindows` in `Sources/Pricing.swift`.
+        Please cite where the new numbers came from.
+
+  - type: input
+    id: source
+    attributes:
+      label: Source
+      description: Link to the page or announcement with the new pricing.
+      placeholder: "https://api-docs.deepseek.com/quick_start/pricing"
+    validations:
+      required: true
+
+  - type: textarea
+    id: changes
+    attributes:
+      label: What changed
+      description: New rates and/or new peak windows.
+    validations:
+      required: true
