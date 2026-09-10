@@ -96,11 +96,25 @@ Repo: https://github.com/andreiteodor97/deepseekbar
 
 ---
 
+## Images
+
+All of these are checked into the repo and regenerate with `make screenshots`:
+
+| File | Use |
+|---|---|
+| `docs/panel.png` | **Attach to post 1.** Balance, live rate, peak timeline, countdown. |
+| `docs/panel-usage.png` | Attach to post 4 (real spend, token split, cache hit rate). |
+| `docs/menu-bar.png` | The menu bar strip, if you want a wide banner image. |
+
+A short screen recording of the panel opening, with the countdown ticking, will outperform
+a still if you have a minute to grab one — the timeline moving is the part that lands.
+
 ## Notes before posting
 
-- The repository is not public yet. Create it and push before posting, or the links 404.
-- `docs/menu-bar.png` is the image to attach to post 1. A short screen recording of the
-  panel opening, showing the countdown, will outperform a still if you have time to grab one.
+- The repository is live at github.com/andreiteodor97/deepseekbar, with a v2.0.0 release,
+  working Homebrew cask, and green CI. All links in the posts below resolve.
 - Post 1 is the only one that needs to stand alone — most people will never expand the thread.
-- If you want to tag DeepSeek, do it in a reply rather than the first post; it reads as
-  less of a growth play and more of a genuine build log.
+- If you want to tag DeepSeek, do it in a reply rather than the first post; it reads as less
+  of a growth play and more of a genuine build log.
+- If someone asks "why not just use the API", the answer is in post 4: the API gives you a
+  balance, not a cost history, and the console that does have it is behind a bot check.

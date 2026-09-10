@@ -17,3 +17,19 @@ swiftc -O -o "$BIN" \
     $(ls "$DIR"/Sources/*.swift | grep -v "Sources/Main.swift")
 
 "$BIN" "$OUT"
+
+# Round the outer corners so the images read as macOS panels rather than rectangles.
+python3 - "$OUT" <<'PY'
+import sys
+from pathlib import Path
+from PIL import Image, ImageDraw
+
+for path in sorted(Path(sys.argv[1]).glob("panel*.png")):
+    image = Image.open(path).convert("RGBA")
+    mask = Image.new("L", image.size, 0)
+    ImageDraw.Draw(mask).rounded_rectangle(
+        [0, 0, image.width - 1, image.height - 1], radius=28, fill=255)
+    rounded = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    rounded.paste(image, (0, 0), mask)
+    rounded.save(path)
+PY
