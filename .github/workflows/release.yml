@@ -80,3 +80,22 @@ jobs:
             ```
 
             Requires macOS 13 or later. Verify downloads against `checksums.txt`.
+
+      # The zip is not byte-for-byte reproducible, so the sha256 in the committed cask
+      # would go stale the moment a release is built. Regenerate it from the artifact
+      # that was actually published, and commit that.
+      - name: Update Homebrew cask
+        run: |
+          set -euo pipefail
+          VERSION="$(cat VERSION)"
+          if git diff --quiet -- Casks/DeepSeekBar.rb; then
+            echo "cask unchanged"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add Casks/DeepSeekBar.rb
+            git commit -m "Update Homebrew cask for v$VERSION [skip ci]"
+            git push origin "HEAD:${{ github.event.repository.default_branch }}"
+          fi
+        env:
+          DEEPSEEKBAR_REPO: ${{ github.repository }}

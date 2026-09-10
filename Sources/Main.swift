@@ -177,12 +177,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .store(in: &cancellables)
 
         renderStatusItem()
+        store.requestNotificationPermission()
         Task { await store.sync() }
 
         // Safety net for evictions with no notification of their own. Recreating is
         // cheap and does not flicker, so this is a fine trade for never disappearing.
-        let timer = Timer.scheduledTimer(withTimeInterval: 20 * 60, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.rebuildStatusItem(reason: "heartbeat") }
+        let timer = Timer.scheduledTimer(withTimeInterval: 20 * 60, repeats: true) { [self] _ in
+            Task { @MainActor in self.rebuildStatusItem(reason: "heartbeat") }
         }
         RunLoop.main.add(timer, forMode: .common)
         watchdog = timer

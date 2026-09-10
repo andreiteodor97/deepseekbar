@@ -1,7 +1,7 @@
 import Foundation
 import Combine
 import AppKit
-@preconcurrency import UserNotifications
+import UserNotifications
 
 /// Per-day record of what this app observed. The only cost figure DeepSeek exposes for an
 /// API key is the current balance, so per-day spend is *derived* by watching that balance
@@ -175,22 +175,22 @@ final class Store: ObservableObject {    static let shared = Store()
     private init() {
         refreshSchedule()
         // Cheap UI tick: the countdown and the "now" marker must feel live.
-        tickTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.tick() }
+        tickTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [self] _ in
+            Task { @MainActor in self.tick() }
         }
         if let t = tickTimer { RunLoop.main.add(t, forMode: .common) }
 
-        NotificationCenter.default.addObserver(forName: .dsbSettingsChanged, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.scheduleRefreshTimer() }
+        NotificationCenter.default.addObserver(forName: .dsbSettingsChanged, object: nil, queue: .main) { [self] _ in
+            Task { @MainActor in self.scheduleRefreshTimer() }
         }
-        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [self] _ in
             Task { @MainActor in
-                self?.refreshSchedule()
-                await self?.sync()
+                self.refreshSchedule()
+                await self.sync()
             }
         }
-        NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in await self?.sync() }
+        NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [self] _ in
+            Task { @MainActor in await self.sync() }
         }
         scheduleRefreshTimer()
         schedulePlatformTimer()
@@ -225,22 +225,18 @@ final class Store: ObservableObject {    static let shared = Store()
         }
     }
 
+    /// Asks once, at launch. Doing it here rather than inside the send path keeps the
+    /// delivery closure free of any non-Sendable capture.
+    func requestNotificationPermission() {
+        NotificationDelivery.requestAuthorization()
+    }
+
     private func notifyModeChange() {
         let title = "DeepSeek \(mode.title) rates"
         let body = mode == .peak
             ? "Peak pricing is live — 2× off-peak rates until \(Fmt.clock(nextTransition, timeZone: Schedule.timeZone)) UTC."
             : "Off-peak pricing is live — half price until \(Fmt.clock(nextTransition, timeZone: Schedule.timeZone)) UTC."
-
-        let center = UNUserNotificationCenter.current()
-        center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
-            guard granted else { return }
-            let content = UNMutableNotificationContent()
-            content.title = title
-            content.body = body
-            content.sound = .default
-            let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
-            center.add(request, withCompletionHandler: nil)
-        }
+        NotificationDelivery.post(title: title, body: body)
     }
 
     var timeUntilTransition: TimeInterval { max(0, nextTransition.timeIntervalSince(now)) }
@@ -250,8 +246,8 @@ final class Store: ObservableObject {    static let shared = Store()
     private func scheduleRefreshTimer() {
         refreshTimer?.invalidate()
         let interval = Credentials.apiKey.isEmpty ? 300 : Settings.shared.refreshIntervalClamped
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-            Task { @MainActor in await self?.sync() }
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [self] _ in
+            Task { @MainActor in await self.sync() }
         }
         if let t = refreshTimer { RunLoop.main.add(t, forMode: .common) }
     }
@@ -260,8 +256,8 @@ final class Store: ObservableObject {    static let shared = Store()
     /// own slow cadence rather than on every balance poll.
     private func schedulePlatformTimer() {
         platformTimer?.invalidate()
-        platformTimer = Timer.scheduledTimer(withTimeInterval: 600, repeats: true) { [weak self] _ in
-            Task { @MainActor in await self?.syncPlatform() }
+        platformTimer = Timer.scheduledTimer(withTimeInterval: 600, repeats: true) { [self] _ in
+            Task { @MainActor in await self.syncPlatform() }
         }
         if let t = platformTimer { RunLoop.main.add(t, forMode: .common) }
     }
@@ -450,6 +446,37 @@ final class Store: ObservableObject {    static let shared = Store()
             return .success(models)
         } catch {
             return .failure(error)
+        }
+    }
+}
+
+// MARK: - Notifications
+
+/// Wraps `UNUserNotificationCenter`.
+///
+/// The centre is not `Sendable`, so capturing it inside its own completion handler warns
+/// on newer compilers. Resolving it fresh inside each call keeps the closures free of
+/// non-Sendable captures, which compiles cleanly across Swift versions without reaching
+/// for `@preconcurrency`.
+enum NotificationDelivery {
+    /// Asked once at launch, so the first rate flip is not the moment macOS decides to
+    /// show a permission prompt.
+    static func requestAuthorization() {
+        Task {
+            _ = try? await UNUserNotificationCenter.current()
+                .requestAuthorization(options: [.alert, .sound])
+        }
+    }
+
+    static func post(title: String, body: String) {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+        let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+
+        Task {
+            try? await UNUserNotificationCenter.current().add(request)
         }
     }
 }

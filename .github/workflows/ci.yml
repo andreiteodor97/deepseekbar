@@ -33,8 +33,17 @@ jobs:
           swift --version
           python3 --version
 
+      # A new warning is a regression. The tree currently compiles clean, and this keeps
+      # it that way -- including warnings only newer Swift versions emit.
       - name: Compile
-        run: ./build.sh
+        run: |
+          set -o pipefail
+          ./build.sh 2>&1 | tee /tmp/build.log
+          if grep -qE "warning:" /tmp/build.log; then
+            echo "::error::compiler warnings are treated as errors"
+            grep -E "warning:" /tmp/build.log
+            exit 1
+          fi
 
       - name: Verify the bundle
         run: |

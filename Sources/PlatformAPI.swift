@@ -316,11 +316,11 @@ final class PlatformAPI: NSObject, ObservableObject {
     private func runFetch(path: String, token: String) async throws -> String {
         guard let webView else { throw PlatformError.needsWebView }
 
-        let raw: String = try await withCheckedThrowingContinuation { continuation in
+        let raw: String = try await withCheckedThrowingContinuation { [self] continuation in
             self.continuation = continuation
             self.pendingTimeout?.invalidate()
-            self.pendingTimeout = Timer.scheduledTimer(withTimeInterval: 25, repeats: false) { [weak self] _ in
-                Task { @MainActor in self?.failPending(PlatformError.timedOut) }
+            self.pendingTimeout = Timer.scheduledTimer(withTimeInterval: 25, repeats: false) { [self] _ in
+                Task { @MainActor in self.failPending(PlatformError.timedOut) }
             }
             if let timer = self.pendingTimeout {
                 RunLoop.main.add(timer, forMode: .common)
