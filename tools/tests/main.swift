@@ -73,5 +73,78 @@ let ranges = Schedule.localPeakRanges(for: date("2026-09-07 12:00"), in: tz4)
 let rendered = ranges.map { "\(Fmt.clock($0.start, timeZone: tz4))-\(Fmt.clock($0.end, timeZone: tz4))" }.joined(separator: ",")
 check("UTC+4 local windows", rendered, "05:00-08:00,10:00-14:00")
 
+// The timeline draws peak bars in a timezone and labels them with hour ticks. If the two
+// ever disagree the diagram is wrong for everyone outside UTC, which is what happened:
+// the bars were projected into local time while the axis was labelled in UTC, so they sat
+// under the wrong numbers.
+do {
+    let utc = Schedule.calendar.date(from: DateComponents(year: 2026, month: 9, day: 8, hour: 2, minute: 30))!
+    for (name, tz) in [("UTC", TimeZone(identifier: "UTC")!),
+                       ("UTC+4", TimeZone(secondsFromGMT: 4 * 3600)!),
+                       ("UTC-5", TimeZone(secondsFromGMT: -5 * 3600)!),
+                       ("UTC+5:30", TimeZone(secondsFromGMT: 5 * 3600 + 1800)!)] {
+        let ranges = Schedule.localPeakRanges(for: utc, in: tz)
+        let ok = !ranges.isEmpty && ranges.allSatisfy { range in
+            // Every drawn bar must fall inside the local day it is drawn on.
+            let cal = Calendar(identifier: .gregorian)
+            var local = cal
+            local.timeZone = tz
+            let dayStart = local.startOfDay(for: utc)
+            let dayEnd = local.date(byAdding: .day, value: 1, to: dayStart)!
+            return range.end > dayStart && range.start < dayEnd
+        }
+        check("timeline bars inside local day (\(name))", ok ? "yes" : "no", "yes")
+    }
+
+    // Projecting must not shorten the windows: each UTC window is three or four hours.
+    for (name, tz) in [("UTC+4", TimeZone(secondsFromGMT: 4 * 3600)!),
+                       ("UTC-5", TimeZone(secondsFromGMT: -5 * 3600)!)] {
+        let ranges = Schedule.localPeakRanges(for: utc, in: tz)
+        let total = ranges.reduce(0.0) { $0 + $1.end.timeIntervalSince($1.start) } / 3600
+        check("peak hours preserved (\(name))", String(format: "%.0f", total), "7")
+    }
+
+    // A half-hour timezone must produce windows offset by 30 minutes, and both must
+    // survive intact rather than getting clipped or split at the day boundary.
+    //
+    // Note the values: 01:00 and 06:00 UTC land on :30 in UTC+5:30, so windows start at
+    // 06:30 and 11:30 IST. A naive "assert minute == 30" passes for the wrong reason.
+    let kolkata = TimeZone(secondsFromGMT: 5 * 3600 + 1800)!
+    let kolkataRanges = Schedule.localPeakRanges(for: utc, in: kolkata)
+    check("UTC+5:30 window count", "\(kolkataRanges.count)", "2")
+    let kolkataHours = kolkataRanges.map { String(format: "%.0f", $0.end.timeIntervalSince($0.start) / 3600) }
+    check("UTC+5:30 window lengths", kolkataHours.joined(separator: ","), "3,4")
+    var kolkataLocal = Calendar(identifier: .gregorian)
+    kolkataLocal.timeZone = kolkata
+    let kolkataMinutes = kolkataRanges.map { kolkataLocal.component(.minute, from: $0.start) }
+    check("UTC+5:30 windows start on the half hour",
+          kolkataMinutes.allSatisfy { $0 == 30 } ? "yes" : "no", "yes")
+}
+
+// `peakState` drives the "peak resumes" line, so it has to agree with the mode.
+do {
+    let tuesdayPeak = Schedule.calendar.date(from: DateComponents(year: 2026, month: 9, day: 8, hour: 2))!
+    let tuesdayOff = Schedule.calendar.date(from: DateComponents(year: 2026, month: 9, day: 8, hour: 12))!
+    let saturday = Schedule.calendar.date(from: DateComponents(year: 2026, month: 9, day: 12, hour: 2))!
+
+    let duringPeak = Schedule.peakState(at: tuesdayPeak)
+    check("peakState during peak", duringPeak.isPeakNow ? "now" : "not", "now")
+    check("peakState has no nextPeak during peak", duringPeak.nextPeak == nil ? "nil" : "set", "nil")
+
+    let duringOff = Schedule.peakState(at: tuesdayOff)
+    check("peakState off-peak", duringOff.isPeakNow ? "now" : "not", "not")
+    // Tuesday 12:00 UTC is past both of Tuesday's windows, so the next peak is
+    // Wednesday's first one, not another window later the same day.
+    check("peakState names the next window",
+          duringOff.nextPeak.map { Fmt.clock($0, timeZone: Schedule.timeZone) } ?? "nil", "01:00")
+    check("and it is the next day",
+          duringOff.nextPeak.map { String(Schedule.calendar.component(.day, from: $0)) } ?? "nil", "9")
+
+    // Saturday must point at Monday, since peak never runs on a weekend.
+    let weekend = Schedule.peakState(at: saturday)
+    let nextWeekday = weekend.nextPeak.map { Schedule.calendar.component(.weekday, from: $0) } ?? 0
+    check("next peak after a Saturday is Monday", "\(nextWeekday)", "2")
+}
+
 print(failures == 0 ? "\nAll checks passed" : "\n\(failures) CHECK(S) FAILED")
 exit(failures == 0 ? 0 : 1)

@@ -12,6 +12,16 @@ import SwiftUI
 /// The numbers below are illustrative, not live.
 @MainActor
 enum Screenshot {
+    /// Fixed instant for every documentation image: Tuesday 02:30 UTC, inside the first
+    /// peak window. Reproducible, and it shows peak pricing rather than the off-peak
+    /// state the app is in for most of the week.
+    private static var fixedNow: Date {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = Schedule.timeZone
+        return calendar.date(from: DateComponents(year: 2026, month: 9, day: 8,
+                                                  hour: 2, minute: 30)) ?? Date()
+    }
+
     static func run() {
         let store = Store.shared
         injectSampleData(into: store, settings: Settings.shared)
@@ -70,10 +80,14 @@ enum Screenshot {
         // A believable day: mostly cached input, which is what real agent traffic looks
         // like and what makes the savings line meaningful.
         let tokens = TokenCounts(cacheHit: 178_387_200, cacheMiss: 520_617, output: 153_472)
+        // A partial day at peak rates, matching the pinned instant (Tuesday 02:30 UTC).
+        let todayTokens = TokenCounts(cacheHit: tokens.cacheHit / 8,
+                                      cacheMiss: tokens.cacheMiss / 8,
+                                      output: tokens.output / 8)
         let today = UsageDay(
-            date: Date(),
-            cost: Rate.cost(tokens, card: card, mode: .offPeak),
-            tokens: tokens,
+            date: fixedNow,
+            cost: Rate.cost(todayTokens, card: card, mode: .peak),
+            tokens: todayTokens,
             requests: 207
         )
 
@@ -98,10 +112,14 @@ enum Screenshot {
             ))
         }
         days.append(today)
+        // The real fetch returns days in ascending order, so match that. (The lookup no
+        // longer depends on it, but sample data that does not look like real data is a
+        // trap for the next person.)
+        days.sort { $0.date < $1.date }
 
         store.applySampleData(
             balance: AccountBalance(currency: "USD", total: 5.04, granted: 0, toppedUp: 5.04),
-            usage: PlatformUsage(lifetimeCost: 24.94, lifetimeCurrency: "USD", days: days, fetchedAt: Date()),
+            usage: PlatformUsage(lifetimeCost: 24.94, lifetimeCurrency: "USD", days: days, fetchedAt: fixedNow),
             perKey: [
                 NamedTokenRow(id: "1", name: "harness", cost: 3.91,
                               tokens: tokens, requests: 1_204),
@@ -109,7 +127,8 @@ enum Screenshot {
                               tokens: TokenCounts(cacheHit: 41_000_000, cacheMiss: 210_000, output: 61_000),
                               requests: 502),
             ],
-            connected: true
+            connected: true,
+            now: fixedNow
         )
     }
 }

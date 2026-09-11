@@ -33,8 +33,12 @@ struct PlatformUsage: Equatable {
     var days: [UsageDay] = []
     var fetchedAt: Date = Date()
 
+    /// The entry for a given day. If the server ever returns more than one bucket for
+    /// the same day — hourly buckets for a partial day, say — the fullest one wins, so
+    /// callers never accidentally read a stub.
     func day(for date: Date, calendar: Calendar) -> UsageDay? {
-        days.first { calendar.isDate($0.date, inSameDayAs: date) }
+        days.filter { calendar.isDate($0.date, inSameDayAs: date) }
+            .max { ($0.tokens.total, $0.requests) < ($1.tokens.total, $1.requests) }
     }
 
     var totalCost: Double { days.reduce(0) { $0 + $1.cost } }

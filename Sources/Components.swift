@@ -175,17 +175,40 @@ struct RateTimeline: View {
         return c
     }
 
-    /// Peak windows overlapping this local day, clipped and expressed as minute offsets.
-    private var segments: [(start: CGFloat, end: CGFloat, label: String)] {
+    /// One entry per contiguous peak run overlapping this day, clipped to the day and
+    /// expressed as minute offsets. Windows that meet exactly (a 1-hour gap in UTC can
+    /// disappear once projected into a half-hour timezone) are merged, so the strip
+    /// cannot show two touching bars as if they were separate.
+    private var segments: [TimelineSegment] {
         let cal = calendar
         let dayStart = cal.startOfDay(for: date)
-        return Schedule.localPeakRanges(for: date, in: timeZone).compactMap { range in
+
+        struct Raw { var start: CGFloat; var end: CGFloat; var startDate: Date; var endDate: Date; var runsPast: Bool }
+        var raw: [Raw] = []
+        for range in Schedule.localPeakRanges(for: date, in: timeZone) {
             let start = max(0, range.start.timeIntervalSince(dayStart) / 60)
             let end = min(1440, range.end.timeIntervalSince(dayStart) / 60)
-            guard end > start else { return nil }
-            return (CGFloat(start), CGFloat(end),
-                    "Peak \(Fmt.clock(range.start, timeZone: timeZone))–\(Fmt.clock(range.end, timeZone: timeZone))")
+            guard end > start else { continue }
+            raw.append(Raw(start: CGFloat(start), end: CGFloat(end),
+                           startDate: range.start, endDate: range.end,
+                           runsPast: range.end > dayStart.addingTimeInterval(1440) || range.start < dayStart))
         }
+
+        var merged: [TimelineSegment] = []
+        for item in raw {
+            if var last = merged.last, abs(last.end - item.start) < 0.5 {
+                last.end = item.end
+                last.runsPast = last.runsPast || item.runsPast
+                merged[merged.count - 1] = last
+            } else {
+                merged.append(TimelineSegment(
+                    start: item.start, end: item.end,
+                    label: "Peak \(Fmt.clock(item.startDate, timeZone: timeZone))–\(Fmt.clock(item.endDate, timeZone: timeZone))",
+                    runsPast: item.runsPast
+                ))
+            }
+        }
+        return merged
     }
 
     /// Minute offset of "now", or nil when the strip is showing a different day.
@@ -199,8 +222,14 @@ struct RateTimeline: View {
     var body: some View {
         VStack(spacing: 4) {
             TimelineCanvas(segments: segments, nowMinute: nowMinute, barHeight: barHeight)
+                .help(segments.isEmpty
+                      ? "No peak window falls on this day"
+                      : segments.map(\.label).joined(separator: "\n"))
                 .frame(height: barHeight + 6)
 
+            // These ticks mark the drawn day, so they are wall-clock hours in the same
+            // timezone the peak segments were computed in. Labelling a local-time strip
+            // with UTC hours puts the bars under the wrong numbers.
             HStack(spacing: 0) {
                 ForEach([0, 6, 12, 18], id: \.self) { hour in
                     Text(String(format: "%02d", hour))
@@ -215,9 +244,18 @@ struct RateTimeline: View {
     }
 }
 
+/// One peak run drawn on the strip. `runsPast` marks a bar clipped by the edge of the
+/// day, which is drawn with a soft edge so it does not read as a hard stop.
+struct TimelineSegment: Equatable {
+    var start: CGFloat
+    var end: CGFloat
+    var label: String
+    var runsPast: Bool = false
+}
+
 /// Split out so `Canvas` is unambiguously SwiftUI's and the drawing maths stays in one place.
 private struct TimelineCanvas: View {
-    let segments: [(start: CGFloat, end: CGFloat, label: String)]
+    let segments: [TimelineSegment]
     let nowMinute: CGFloat?
     let barHeight: CGFloat
 
@@ -232,10 +270,19 @@ private struct TimelineCanvas: View {
 
             // Peak windows.
             for segment in segments {
+                // A bar touching the edge of the day continues beyond it, so square that
+                // edge off rather than drawing a rounded cap that implies a boundary.
                 let x = segment.start * scale
                 let w = max(2, (segment.end - segment.start) * scale)
-                let rect = CGRect(x: x, y: 3, width: w, height: barHeight)
-                let path = Path(roundedRect: rect, cornerRadius: 3, style: .continuous)
+                let touchesDayStart = segment.start <= 0.5
+                let touchesDayEnd = segment.end >= 1439.5
+                var corners = RectangleCornerRadii(topLeading: 3, bottomLeading: 3,
+                                                   bottomTrailing: 3, topTrailing: 3)
+                if touchesDayStart { corners.topLeading = 0; corners.bottomLeading = 0 }
+                if touchesDayEnd { corners.topTrailing = 0; corners.bottomTrailing = 0 }
+
+                let path = Path(roundedRect: CGRect(x: x, y: 3, width: w, height: barHeight),
+                                cornerRadii: corners, style: .continuous)
                 context.fill(path, with: .linearGradient(
                     Gradient(colors: [Palette.peak, Palette.peak.opacity(0.78)]),
                     startPoint: CGPoint(x: x, y: 3),

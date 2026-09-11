@@ -141,7 +141,10 @@ struct PanelView: View {
                             .foregroundStyle(.tertiary)
                     }
 
-                    RateTimeline(date: store.now, timeZone: timelineZone)
+                    // Drawn in local time so the bars sit under the hour labels below
+                    // them. DeepSeek bills on UTC, which is what the API docs quote, so
+                    // the UTC equivalent is spelled out on the weekly schedule card.
+                    RateTimeline(date: store.now, timeZone: .current)
 
                     HStack(spacing: 6) {
                         Image(systemName: store.mode == .peak ? "exclamationmark.triangle.fill" : "checkmark.seal.fill")
@@ -150,15 +153,17 @@ struct PanelView: View {
                         Text(store.mode == .peak ? "Peak until" : "Off-peak until")
                             .font(.system(size: 11.5))
                             .foregroundStyle(.secondary)
-                        Text("\(Fmt.clock(store.nextTransition, timeZone: timelineZone)) \(timelineZoneAbbrev)")
+                        Text(Fmt.clock(store.nextTransition, timeZone: .current))
                             .font(.system(size: 11.5, weight: .medium))
                             .monospacedDigit()
-                        Text("· \(Fmt.countdown(store.timeUntilTransition))")
+                        Text("local · \(Fmt.countdown(store.timeUntilTransition))")
                             .font(.system(size: 11.5))
                             .monospacedDigit()
                             .foregroundStyle(.secondary)
                         Spacer()
                     }
+
+                    peakResumeRow
                 }
             }
 
@@ -218,6 +223,63 @@ struct PanelView: View {
                 }
             }
         }
+    }
+
+    /// States when peak next begins, in local time and in UTC. Someone who looked at the
+    /// panel all day and only ever saw "off-peak" needs this line to make sense of it:
+    /// peak is 7 hours on 5 days out of 7, so off-peak is the normal state.
+    @ViewBuilder
+    private var peakResumeRow: some View {
+        let state = Schedule.peakState(at: store.now)
+        Divider().opacity(0.5)
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: state.isPeakNow ? "clock.badge.exclamationmark" : "clock")
+                .font(.system(size: 10))
+                .foregroundStyle(state.isPeakNow ? Palette.peak : .secondary)
+            if state.isPeakNow {
+                Text("Peak is running now")
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(Palette.peak)
+            } else if let next = state.nextPeak {
+                // Two lines rather than one: the date, the local time, and the UTC
+                // equivalent do not fit on a single row at this width.
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Peak resumes \(peakResumeText(next))")
+                        .font(.system(size: 11.5, weight: .medium))
+                        .monospacedDigit()
+                    Text("in \(Fmt.countdown(next.timeIntervalSince(store.now))) · \(Fmt.clock(next, timeZone: Schedule.timeZone)) UTC")
+                        .font(.system(size: 10))
+                        .monospacedDigit()
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            Spacer(minLength: 4)
+            Text(weekdayNote)
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+        }
+    }
+
+    /// "Sat 01:00 local (05:00 UTC)" — the date matters, because the next peak is often
+    /// not today and is never on a weekend.
+    private func peakResumeText(_ date: Date) -> String {
+        let cal = Calendar.current
+        let day = DateFormatter()
+        day.dateFormat = "EEE HH:mm"
+
+        let isToday = cal.isDate(date, inSameDayAs: store.now)
+        let isTomorrow = cal.isDate(date, inSameDayAs: cal.date(byAdding: .day, value: 1, to: store.now) ?? store.now)
+        let local = isToday ? "today \(Fmt.clock(date, timeZone: .current))"
+            : isTomorrow ? "tomorrow \(Fmt.clock(date, timeZone: .current))"
+            : day.string(from: date)
+
+        return local
+    }
+
+    private var weekdayNote: String {
+        let weekday = Calendar.current.component(.weekday, from: store.now)
+        return Schedule.isWorkday(weekday: weekday) ? "Mon–Fri" : "weekend — no peak"
     }
 
     private var rateHeaderRow: some View {
@@ -299,14 +361,15 @@ struct PanelView: View {
                     miniStat(label: "Today", value: tokenSummary, hint: store.todayRequests > 0 ? nil : "no calls yet")
                 }
 
-                if let savings = store.todaySavings, settings.showSavings {
+                if settings.showSavings, let note = savingsNote {
                     HStack(spacing: 5) {
-                        Image(systemName: "arrow.down.circle.fill")
+                        Image(systemName: note.icon)
                             .font(.system(size: 10))
-                            .foregroundStyle(Palette.cheap)
-                        Text("Off-peak saved you \(Fmt.money(savings, decimals: 3)) today versus peak rates.")
+                            .foregroundStyle(note.tint)
+                        Text(note.text)
                             .font(.system(size: 10.5))
                             .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
 
@@ -325,6 +388,33 @@ struct PanelView: View {
                 }
             }
         }
+    }
+
+    /// The one-line takeaway under the balance.
+    ///
+    /// Comparing today's cost against a fully-peak day is degenerate: while peak is
+    /// running every token already was peak, so the difference is exactly zero and the
+    /// line reads "$0.000 less", which is worse than saying nothing. The useful statement
+    /// is the one that reflects the mode you are actually in — what off-peak already
+    /// saved, or what continuing at peak is costing.
+    private var savingsNote: (icon: String, tint: Color, text: String)? {
+        guard let peakEquivalent = store.todayPeakEquivalent, store.todayRequests > 0 else { return nil }
+        let saved = peakEquivalent - store.spentToday
+
+        if store.mode == .offPeak {
+            guard saved > 0.0005 else { return nil }
+            return ("arrow.down.circle.fill", Palette.cheap,
+                    "Off-peak saved you \(Fmt.money(saved, decimals: 3)) today versus peak rates.")
+        }
+
+        // At peak, frame it as what the same work is costing right now.
+        let offPeakEquivalent = store.todayTokens.isEmpty
+            ? 0
+            : Rate.cost(store.todayTokens, card: Rate.flash, mode: .offPeak)
+        let premium = store.spentToday - offPeakEquivalent
+        guard premium > 0.0005 else { return nil }
+        return ("exclamationmark.arrow.triangle.2.circlepath", Palette.peak,
+                "Peak is costing \(Fmt.money(premium, decimals: 3)) more than off-peak would have.")
     }
 
     private func miniStat(label: String, value: String, hint: String? = nil) -> some View {
@@ -573,9 +663,14 @@ struct PanelView: View {
     // MARK: Timezone helpers
 
     /// DeepSeek bills on UTC; show UTC to match the invoice.
-    private var timelineZone: TimeZone { Schedule.timeZone }
-    private var timelineZoneLabel: String { "UTC · 24h" }
-    private var timelineZoneAbbrev: String { "UTC" }
+    /// The strip is drawn in the viewer's own timezone, so the hour ticks mean what they
+    /// look like they mean.
+    private var timelineZone: TimeZone { .current }
+
+    private var timelineZoneLabel: String {
+        let zone = TimeZone.current.abbreviation() ?? TimeZone.current.identifier
+        return "\(zone) · your time"
+    }
 
     private func open(_ urlString: String) {
         guard let url = URL(string: urlString) else { return }

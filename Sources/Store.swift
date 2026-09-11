@@ -162,6 +162,10 @@ final class Store: ObservableObject {    static let shared = Store()
     /// state without a live session.
     private var sampleConnected: Bool?
 
+    /// Overridden by tools/screenshot.sh so documentation images do not change every
+    /// time they are regenerated.
+    private var sampleNow: Date?
+
     var isConnectedToConsole: Bool { sampleConnected ?? (Credentials.consoleToken != nil) }
 
     private let api = DeepSeekAPI()
@@ -203,7 +207,8 @@ final class Store: ObservableObject {    static let shared = Store()
     // MARK: Schedule
 
     private func tick() {
-        now = Date()
+        now = sampleNow ?? Date()
+        guard sampleNow == nil else { return }
         let newMode = Schedule.mode(at: now)
         if newMode != mode {
             mode = newMode
@@ -216,7 +221,7 @@ final class Store: ObservableObject {    static let shared = Store()
     }
 
     private func refreshSchedule() {
-        now = Date()
+        now = sampleNow ?? Date()
         mode = Schedule.mode(at: now)
         nextTransition = Schedule.nextTransition(after: now)
     }
@@ -294,7 +299,7 @@ final class Store: ObservableObject {    static let shared = Store()
 
     private func apply(balance: AccountBalance) {
         self.balance = balance
-        let day = Self.dayKey(for: Date())
+        let day = Self.dayKey(for: now)
         ledger.record(day, balance: balance.total, at: Date())
         Storage.saveLedger(ledger)
         objectWillChange.send()
@@ -356,31 +361,38 @@ final class Store: ObservableObject {    static let shared = Store()
     /// Feeds fixed sample figures into the panel. Used only by tools/screenshot.sh so
     /// documentation images do not depend on a live account or a quiet desktop.
     func applySampleData(balance: AccountBalance, usage: PlatformUsage, perKey: [NamedTokenRow],
-                         connected: Bool = false) {
+                         connected: Bool = false, now: Date? = nil) {
         self.balance = balance
         self.platformUsage = usage
         self.perKeyUsage = perKey
         self.lastSync = Date()
         sampleConnected = connected
+        if let now {
+            sampleNow = now
+            refreshSchedule()
+        }
     }
 
     // MARK: Derived figures
 
-    var today: DayRecord? { ledger.days.last { $0.day == Self.dayKey(for: Date()) } }
+    var today: DayRecord? { ledger.days.last { $0.day == Self.dayKey(for: now) } }
 
     /// Spend today, preferring the console's billed figure and falling back to the
     /// balance-drop estimate when the console is not connected.
     var spentToday: Double {
-        if let day = platformUsage?.day(for: Date(), calendar: .current) { return day.cost }
+        if let day = todayUsage { return day.cost }
         return today?.spend ?? 0
     }
 
+    /// Today's console entry. Derived from `now` rather than `Date()` so it always
+    /// agrees with the schedule and countdown shown beside it — reading the wall clock
+    /// here let the panel's headline and its timeline describe different days.
     var todayUsage: UsageDay? {
-        platformUsage?.day(for: Date(), calendar: .current)
+        platformUsage?.day(for: now, calendar: .current)
     }
 
     /// Whether the displayed spend is DeepSeek's own number or this app's estimate.
-    var spendIsBilled: Bool { platformUsage?.day(for: Date(), calendar: .current) != nil }
+    var spendIsBilled: Bool { todayUsage != nil }
 
     var lifetimeCost: Double? { platformUsage?.lifetimeCost }
 
@@ -398,6 +410,13 @@ final class Store: ObservableObject {    static let shared = Store()
     var trackedDayCount: Int {
         if let usage = platformUsage, !usage.days.isEmpty { return usage.days.count }
         return ledger.days.count
+    }
+
+    /// What today's tokens would have cost at peak rates, minus what they did cost.
+    /// Sourced from `todayUsage`, so it follows the same clock as everything else.
+    var todayPeakEquivalent: Double? {
+        guard let usage = todayUsage, !usage.tokens.isEmpty else { return nil }
+        return usage.peakEquivalentCost()
     }
 
     /// Daily spend series for the mini chart, oldest first. Real data when available.

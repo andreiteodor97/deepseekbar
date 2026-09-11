@@ -2,6 +2,31 @@
 
 Notable changes to DeepSeekBar. This project follows [Semantic Versioning](https://semver.org).
 
+## [Unreleased]
+
+### Fixed
+
+- **The peak timeline was wrong for anyone outside UTC.** Peak windows were projected
+  into local time but the hour labels beneath them were UTC, so the bars sat under the
+  wrong numbers. The row that was meant to translate the windows into local time was
+  skipped entirely, because it assumed the display was already UTC. The strip is now
+  drawn and labelled in local time, with the UTC equivalent stated alongside.
+- **"Today" could describe a different day than the rest of the panel.** The spend,
+  tokens and cache-rate figures read the wall clock while the schedule and countdown read
+  the store's own clock, so the two could disagree. Everything now follows one clock.
+- **The savings line could read "$0.000 less".** Comparing today's cost against a
+  fully-peak day is degenerate while peak is running — every token already was peak — so
+  the line is now mode-aware: what off-peak has saved, or what peak is currently costing.
+- Timeline bars clipped by the edge of the day are drawn square rather than rounded, so
+  a window that continues past midnight no longer looks like it stops there. Windows that
+  meet exactly are merged into one bar.
+
+### Added
+
+- A **"peak resumes"** line naming the weekday, local time and UTC time of the next peak
+  window, with a countdown. Peak is 7 hours on 5 days out of 7, so "off-peak" is the
+  normal state; without this the panel never explained when that changes.
+
 ## [2.0.0] — 2026-09-10
 
 The first release worth using. A ground-up rewrite of the original status item.

@@ -128,9 +128,15 @@ enum Schedule {
         return date.addingTimeInterval(3600)
     }
 
-    /// Start of the next peak window, or nil if we are inside one.
+    /// Start of the next peak window, or nil if one is already running. This is the
+    /// actionable number: it is when waiting a while starts saving real money.
     static func nextPeakStart(after date: Date) -> Date? {
         mode(at: date) == .peak ? nil : nextTransition(after: date)
+    }
+
+    /// Whether one of the two windows is running right now, and when the next one opens.
+    static func peakState(at date: Date) -> (isPeakNow: Bool, nextPeak: Date?) {
+        (mode(at: date) == .peak, nextPeakStart(after: date))
     }
 
     /// Seconds until the mode flips.
